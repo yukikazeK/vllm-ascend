@@ -1,0 +1,65 @@
+--- a/vllm/v1/worker/gpu/model_runner.py
++++ b/vllm/v1/worker/gpu/model_runner.py
+@@ -1653,6 +1653,9 @@
+                     scheduler_output, empty_output
+                 )
+ 
++        if not dummy_run and self.speculator is not None:
++            from full_policy import select
++            select(self,scheduler_output)
+         # Get batch descriptor and sync across DP ranks.
+         num_reqs = len(scheduler_output.num_scheduled_tokens)
+         num_toks = scheduler_output.total_num_scheduled_tokens
+@@ -1699,6 +1702,9 @@
+             uniform_decode=uniform_tok_count == self.decode_query_len,
+         )
+ 
++        if not dummy_run:
++            from full_policy import event
++            event('dispatch',mode=batch_desc.cg_mode.name,width=uniform_tok_count,bs=num_reqs,tokens=num_toks)
+         if batch_desc.num_tokens == 0:
+             # All DP ranks have zero tokens to run.
+             empty_output = self.kv_connector.no_forward(scheduler_output)
+@@ -2120,7 +2126,11 @@
+             input_batch.query_start_loc,
+         )
+ 
++        _runtime_k=getattr(self,'_current_draft_k',self.num_speculative_steps)
+         if self.speculator is not None:
++            from full_policy import event
++            event('draft_call' if _runtime_k else 'draft_skip',k=_runtime_k,bs=len(input_batch.req_ids))
++        if self.speculator is not None and _runtime_k:
+             assert self.sampler is not None
+             if isinstance(self.speculator, DraftModelSpeculator):
+                 self.speculator.observe_verification(
+@@ -2139,7 +2149,8 @@
+                     self.sampler._get_contexts(input_batch.idx_mapping),
+                     self.sampler.watermarking.gpu[input_batch.idx_mapping],
+                 )
+-            with use_workspace_lane(self._draft_workspace_lane):
++            from full_tiers import tier
++            with tier(self.speculator,_runtime_k), use_workspace_lane(self._draft_workspace_lane):
+                 draft_tokens = self.speculator.propose(
+                     input_batch,
+                     attn_metadata,
+@@ -2155,7 +2166,10 @@
+                     dp_sync=dp_sync,
+                     mm_inputs=mm_inputs,
+                 )
+-            self.req_states.draft_tokens[input_batch.idx_mapping] = draft_tokens
++            assert draft_tokens.shape==(len(input_batch.req_ids),_runtime_k), (draft_tokens.shape,_runtime_k)
++            self.req_states.draft_tokens[input_batch.idx_mapping, :_runtime_k] = draft_tokens
++            from full_policy import event
++            event('produced',k=_runtime_k,bs=len(input_batch.req_ids))
+             if self.adaptive_verification is not None:
+                 self.adaptive_verification.record_confidences(
+                     self.speculator.draft_token_confidence_probs, input_batch
+@@ -2166,7 +2180,7 @@
+             # not have a speculator (i.e. self.speculator is None)
+             self.draft_tokens_handler.set_draft_tokens(
+                 input_batch,
+-                self.req_states.draft_tokens[input_batch.idx_mapping],
++                self.req_states.draft_tokens[input_batch.idx_mapping, :_runtime_k],
+             )
+             if self.pp_handler is not None:
+                 self.pp_handler.broadcast_drafts(

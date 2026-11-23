@@ -1,0 +1,29 @@
+--- a/vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py
++++ b/vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py
+@@ -331,6 +331,9 @@
+         we need to cache input_batch, so we can use it later in
+         generate_draft.
+         """
++        if not dummy_run:
++            from full_policy import event
++            event('native_proposer_enter',steps=self.num_speculative_steps,bs=input_batch.num_reqs)
+         self.input_batch = input_batch
+         # Replicated drafts use global tokens, unlike the PCP-local target.
+         # Every DP rank must take the draft sync, including decode and idle ranks.
+@@ -442,6 +445,16 @@
+                 self.kv_cache_config,
+                 progress_bar_desc="Capturing decode CUDA graphs",
+             )
++
++        config=self.speculative_config
++        if config.uses_dynamic_speculative_decoding():
++            from full_tiers import capture_tiers
++            def capture_extra(mgr):
++                with disable_target_pcp_for_replicated_draft(self), build_attn_metadata_wrapper():
++                    mgr.capture(self._multi_step_decode, self.model_state, self.input_buffers,
++                                self.block_tables, self.attn_groups, self.kv_cache_config,
++                                progress_bar_desc=f"Capturing draft K={self.num_speculative_steps}")
++            capture_tiers(self,config.num_speculative_tokens_per_batch_size,capture_extra)
+ 
+     @torch.inference_mode()
+     def _run_model(

@@ -1,0 +1,36 @@
+--- a/vllm/v1/worker/gpu/cudagraph_utils.py
++++ b/vllm/v1/worker/gpu/cudagraph_utils.py
+@@ -269,6 +269,7 @@
+         if (
+             speculative_config
+             and speculative_config.uses_dynamic_speculative_decoding()
++            and self.decode_query_len > self.vllm_config.num_speculative_tokens
+         ):
+             # decode_query_len = num_speculative_steps + num_new_sampled_tokens
+             # _per_step. Recover num_new_sampled_tokens_per_step
+@@ -518,6 +519,25 @@
+                     num_ubatches,
+                 ):
+                     return desc
++        # Different speculative widths can have different padding boundaries.
++        # The token-count bucket can contain only other widths even when a
++        # compatible, slightly larger uniform decode graph was captured.
++        if (
++            self._graphs_captured
++            and self.cudagraph_mode == CUDAGraphMode.FULL_DECODE_ONLY
++            and num_tokens > 0
++            and uniform_token_count is not None
++        ):
++            for desc in reversed(self._capture_descs.get(CUDAGraphMode.FULL, ())):
++                if (
++                    desc.uniform_token_count == uniform_token_count
++                    and desc in self.graphs
++                    and _is_compatible(
++                        desc, num_reqs, num_tokens, uniform_token_count,
++                        effective_loras, max_query_len, num_ubatches,
++                    )
++                ):
++                    return desc
+         return BatchExecutionDescriptor(
+             cg_mode=CUDAGraphMode.NONE,
+             num_tokens=num_tokens,

@@ -1,0 +1,57 @@
+{
+  "vllm_ascend.worker.v2.aclgraph_utils": {
+    "patch": "acl.patch",
+    "source_sha256": "b2271eb4aab5876e85370897236a99ece7e9a9541b05f2fc0dd923b32bb8193d",
+    "result_sha256": "237d377080b96653c8155fcc897573a6bfa72959cc22070ec41f8103da84e04a"
+  },
+  "vllm.v1.worker.gpu.spec_decode.autoregressive.speculator": {
+    "patch": "base_ar.patch",
+    "source_sha256": "5b97f54e20ddf65b98e939832d050745f67ef43cfa145786da300f1a8322e3c6",
+    "result_sha256": "ff864543e42d9a3c0923283b0d9f82582f595d5b3b0abc0af87693682a16734b"
+  },
+  "vllm.v1.worker.gpu.cudagraph_utils": {
+    "patch": "candidates.patch",
+    "source_sha256": "6e9c042890603535e300a40df8ee159dbed1058a64a83ae50ff0329e332e05ff",
+    "result_sha256": "d68069a484a20070946f29eba56690371d8960fbcb88270c74382070eede1487"
+  },
+  "vllm_ascend.worker.v2.spec_decode.autoregressive.speculator": {
+    "patch": "drafter.patch",
+    "source_sha256": "3e741bd6801b4de6ce8008495c76a9fc931bd5b30ed1e136d4b5963c2ecfcf53",
+    "result_sha256": "9e03180dd721628f1d1a4b140b5e6e090aa1c3d95ae5cc24d4e5fc462457ec41"
+  },
+  "vllm.v1.engine.core": {
+    "patch": "engine.patch",
+    "source_sha256": "268bf40534a853812867ae8e80040f190983cb364b41182b55969aace20c93f5",
+    "result_sha256": "280d819bab7b69369399cf169c911a83e5c7dfb0768a77ffd97d5180a17fd6d5"
+  },
+  "vllm.v1.core.single_type_kv_cache_manager": {
+    "patch": "lease_manager.patch",
+    "source_sha256": "0233531d85aeced9e57a38c76d83db970519c92902b7e55484390cb2b64985bf",
+    "result_sha256": "0aac24c30e66ee5aea27e9a6c2c1928dd039e286fbf4c8b66a370140f62f794f"
+  },
+  "vllm.v1.worker.gpu.block_table": {
+    "patch": "lease_table.patch",
+    "source_sha256": "61c004315d5af7e7eae4e2a9e6be92ea82c520327690a7f55a73bb9ce95f520a",
+    "result_sha256": "903f339176763a01b0d63aa8e2376c904f711480bb4be6d0f1dc1ae477fffebb"
+  },
+  "vllm.v1.worker.mamba_utils": {
+    "patch": "mamba_utils.patch",
+    "source_sha256": "23fdaa4e8f63ee8f938eaa1a2b39f803cb04fa6ecd69789563254b1a0691413a",
+    "result_sha256": "eda71c483d9683d44b61557d96fef45c37993a1de71a8dda60a7f3ce185bec44"
+  },
+  "vllm_ascend.worker.v2.model_states.mamba_hybrid": {
+    "patch": "npu_hybrid.patch",
+    "source_sha256": "32a89b4fccfa48dd31701935c1f1d4d7c18f7a81105f1fd0745be83a3c75c3d6",
+    "result_sha256": "cd90d83afe3c55f7eeaa5801c0ce69d8e177100d594e535c6331efd068ba94c1"
+  },
+  "vllm_ascend.ops.triton.v2.mamba.precopy": {
+    "patch": "npu_precopy.patch",
+    "source_sha256": "293f5e551bc659a99d456847427db14b446347b654ee2ebe5e1ce2c6a215ff76",
+    "result_sha256": "c8ceb0033c85eac65fe42da5f34685792a45d2686e4714ef47444e76a46c27dc"
+  },
+  "vllm.v1.worker.gpu.model_runner": {
+    "patch": "runner.patch",
+    "source_sha256": "174c93db921c23cf0396eee4764be25b2bd2d4b6a06e9fa41ce3598b884ce8ce",
+    "result_sha256": "5b5a7e98d7250b942f80c1359c01637c652902c844767bc1f38e412c87d3a57e"
+  }
+}

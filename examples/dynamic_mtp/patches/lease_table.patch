@@ -1,0 +1,12 @@
+--- a/vllm/v1/worker/gpu/block_table.py
++++ b/vllm/v1/worker/gpu/block_table.py
+@@ -272,6 +272,9 @@
+         block_ids = tl.load(src_row_ptr + offset, mask=offset < num_blocks)
+         tl.store(dst_row_ptr + offset, block_ids, mask=offset < num_blocks)
+ 
++    tail = num_blocks + tl.arange(0, 4)
++    tl.store(dst_row_ptr + tail, 0, mask=tail < max_num_blocks)
++
+ 
+ @triton.jit
+ def _compute_slot_mappings_kernel(

@@ -1,0 +1,28 @@
+--- a/vllm/v1/engine/core.py
++++ b/vllm/v1/engine/core.py
+@@ -597,7 +597,12 @@
+         # or finished and not yet removed from the batch.
+         if not self.scheduler.has_requests():
+             return {}, False
++        from late_switch import prepare, apply
++        prepare(self.scheduler)
+         scheduler_output = self.scheduler.schedule(self._should_throttle_prefills())
++        from full_tiers_policy import choose
++        choose(self.scheduler,scheduler_output)
++        apply(scheduler_output)
+         future = self.model_executor.execute_model(scheduler_output, non_block=True)
+         grammar_output = self.scheduler.get_grammar_bitmask(scheduler_output)
+         with (
+@@ -655,7 +660,12 @@
+         model_executed = False
+         deferred_scheduler_output = None
+         if self.scheduler.has_requests():
++            from late_switch import prepare, apply
++            prepare(self.scheduler)
+             scheduler_output = self.scheduler.schedule(self._should_throttle_prefills())
++            from full_tiers_policy import choose
++            choose(self.scheduler,scheduler_output)
++            apply(scheduler_output)
+             with self.log_error_detail(scheduler_output):
+                 exec_future = self.model_executor.execute_model(
+                     scheduler_output, non_block=True

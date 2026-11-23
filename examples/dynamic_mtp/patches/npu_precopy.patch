@@ -1,0 +1,16 @@
+--- a/vllm_ascend/ops/triton/v2/mamba/precopy.py
++++ b/vllm_ascend/ops/triton/v2/mamba/precopy.py
+@@ -150,10 +150,10 @@
+     src_col = tl.load(src_col_ptr + req_idx)
+     dst_col = tl.load(mamba_state_idx_ptr + req_idx)
+ 
+-    if src_col < 0 or src_col == dst_col:
++    signed_bias = tl.load(token_bias_ptr + req_idx)
++    if src_col < 0 or (src_col == dst_col and signed_bias >= 0):
+         return
+-
+-    token_bias = tl.load(token_bias_ptr + req_idx)
++    token_bias = tl.abs(signed_bias)
+ 
+     _copy_mamba_state_block(
+         state_idx,

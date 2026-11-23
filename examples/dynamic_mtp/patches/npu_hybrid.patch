@@ -1,0 +1,15 @@
+--- a/vllm_ascend/worker/v2/model_states/mamba_hybrid.py
++++ b/vllm_ascend/worker/v2/model_states/mamba_hybrid.py
+@@ -256,6 +256,12 @@
+             self._mamba_src_off_gpu,
+             input_batch.idx_mapping,
+         )
++        from full_policy import root,event
++        if not (root/'timing').exists() and (input_batch.num_scheduled_tokens == 1).any():
++            bias=self._mamba_src_off_gpu[input_batch.idx_mapping].cpu().tolist()
++            if any(x < 0 for x in bias):
++                event('gdn_transfer',accepted_offset=bias)
++
+ 
+     def copy_state_after_kv_load(self) -> None:
+         """Run bulk pre-copy before eager execution or FULL graph replay."""

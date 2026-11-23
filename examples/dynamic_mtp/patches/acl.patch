@@ -1,0 +1,11 @@
+--- a/vllm_ascend/worker/v2/aclgraph_utils.py
++++ b/vllm_ascend/worker/v2/aclgraph_utils.py
+@@ -173,6 +173,8 @@
+ 
+     def run_fullgraph(self, desc: BatchExecutionDescriptor) -> torch.Tensor | tuple[torch.Tensor, list[torch.Tensor]]:
+         """Override run_fullgraph to update full graph params in run_fullgraph."""
++        from full_policy import event
++        event('target_full',width=desc.max_query_len,tokens=desc.num_tokens,bs=desc.num_reqs)
+         num_tokens = desc.num_tokens
+         assert self.update_stream is not None
+         with set_current_vllm_config(self.vllm_config):

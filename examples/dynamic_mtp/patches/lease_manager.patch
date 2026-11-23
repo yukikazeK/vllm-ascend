@@ -1,0 +1,125 @@
+--- a/vllm/v1/core/single_type_kv_cache_manager.py
++++ b/vllm/v1/core/single_type_kv_cache_manager.py
+@@ -1686,6 +1686,8 @@
+         query_end: int,
+         checkpoint_position: int,
+     ) -> bool:
++        from positive_admission import physical_depth
++        request_spec_blocks=physical_depth(request_id,self.num_speculative_blocks)
+         assert isinstance(self.kv_cache_spec, MambaSpec)
+         checkpoint_idx = cdiv(query_end, self.block_size) - 2
+         blocks = self.req_to_blocks[request_id]
+@@ -1705,7 +1707,7 @@
+                 or blocks[checkpoint_idx].is_null
+                 or (
+                     request_id in self._allocated_block_reqs
+-                    and checkpoint_idx >= len(blocks) - self.num_speculative_blocks
++                    and checkpoint_idx >= len(blocks) - request_spec_blocks
+                 )
+             )
+         )
+@@ -1720,6 +1722,8 @@
+         num_tokens_main_model: int,
+         apply_admission_cap: bool = False,
+     ) -> int:
++        from positive_admission import physical_depth
++        request_spec_blocks=physical_depth(request_id,self.num_speculative_blocks)
+         assert isinstance(self.kv_cache_spec, MambaSpec)
+         if (
+             len(new_computed_blocks) > 0
+@@ -1733,9 +1737,9 @@
+         if self.mamba_cache_mode != "align":
+             # Allocate extra `num_speculative_blocks` blocks for
+             # speculative decoding (MTP/EAGLE) with linear attention.
+-            if self.num_speculative_blocks > 0:
++            if request_spec_blocks > 0:
+                 num_tokens += (
+-                    self.kv_cache_spec.block_size * self.num_speculative_blocks
++                    self.kv_cache_spec.block_size * request_spec_blocks
+                 )
+             return super().get_num_blocks_to_allocate(
+                 request_id,
+@@ -1757,7 +1761,7 @@
+             # NOTE(tdouble): this is an over-estimate of how many blocks we need because
+             # num_tokens can include draft tokens that will later be rejected.
+             num_required_blocks = (
+-                cdiv(num_tokens, self.block_size) + self.num_speculative_blocks
++                cdiv(num_tokens, self.block_size) + request_spec_blocks
+             )
+             num_new_blocks = (
+                 num_required_blocks
+@@ -1799,7 +1803,7 @@
+                 if not (checkpoint_block and blocks_allocated):
+                     num_new_blocks = 1 + int(has_partial_hit) + checkpoint_block
+                     if not blocks_allocated:
+-                        num_new_blocks += self.num_speculative_blocks
++                        num_new_blocks += request_spec_blocks
+ 
+             num_evictable_computed_blocks = self._get_num_evictable_blocks(
+                 new_computed_blocks
+@@ -1809,12 +1813,14 @@
+     def allocate_new_blocks(
+         self, request_id: str, num_tokens: int, num_tokens_main_model: int
+     ) -> list[KVCacheBlock]:
++        from positive_admission import physical_depth
++        request_spec_blocks=physical_depth(request_id,self.num_speculative_blocks)
+         assert isinstance(self.kv_cache_spec, MambaSpec)
+         if self.mamba_cache_mode != "align":
+             # Allocate extra `num_speculative_blocks` blocks for
+             # speculative decoding (MTP/EAGLE) with linear attention.
+-            if self.num_speculative_blocks > 0:
+-                num_tokens += self.block_size * self.num_speculative_blocks
++            if request_spec_blocks > 0:
++                num_tokens += self.block_size * request_spec_blocks
+             return super().allocate_new_blocks(
+                 request_id, num_tokens, num_tokens_main_model
+             )
+@@ -1829,7 +1835,7 @@
+             # NOTE(tdouble): this is an over-estimate of how many blocks we need because
+             # num_tokens can include draft tokens that will later be rejected.
+             num_required_blocks = (
+-                cdiv(num_tokens, self.block_size) + self.num_speculative_blocks
++                cdiv(num_tokens, self.block_size) + request_spec_blocks
+             )
+             checkpoint_block = int(request_id in self._checkpoints)
+             partial_hit = self._partial_hit_reqs.get(request_id)
+@@ -1851,7 +1857,7 @@
+                     # We always save the running state at the last
+                     # (1 + num_speculative_blocks) block
+                     self.last_state_block_idx[request_id] = (
+-                        prev_block_len - 1 - self.num_speculative_blocks
++                        prev_block_len - 1 - request_spec_blocks
+                     )
+                 elif prev_block_len > 0:
+                     # When a new request hits the prefix cache, the last block
+@@ -1859,7 +1865,7 @@
+                     self.last_state_block_idx[request_id] = prev_block_len - 1
+ 
+                 num_skipped_blocks = (
+-                    num_required_blocks - self.num_speculative_blocks - 1
++                    num_required_blocks - request_spec_blocks - 1
+                 )
+                 # null blocks
+                 if prev_block_len < num_skipped_blocks:
+@@ -1873,7 +1879,7 @@
+                 if blocks_allocated and not checkpoint_block:
+                     # Relocate exclusively owned speculative scratch blocks.
+                     for block_idx in range(
+-                        prev_block_len - self.num_speculative_blocks, prev_block_len
++                        prev_block_len - request_spec_blocks, prev_block_len
+                     ):
+                         if block_idx < num_skipped_blocks:
+                             self._relocate_speculative_block(req_blocks, block_idx)
+@@ -1884,8 +1890,11 @@
+                     num_new_blocks = max(num_new_blocks, 0) + 1
+                 max_new_blocks = 1 + int(has_partial_hit) + checkpoint_block
+                 if not blocks_allocated or checkpoint_block:
+-                    max_new_blocks += self.num_speculative_blocks
++                    max_new_blocks += request_spec_blocks
+                 assert num_new_blocks <= max_new_blocks
++                if not blocks_allocated:
++                    from positive_admission import record_allocation
++                    record_allocation(self,request_id,num_new_blocks)
+                 new_blocks = self.block_pool.get_new_blocks(num_new_blocks)
+                 returned_blocks = req_blocks[prev_block_len:]
+                 if partial_hit is not None:
