@@ -111,6 +111,8 @@ def prepare_overlay(state_dir, policy, sources):
             compile(result, str(output), "exec")
         (working / "modules.json").write_text(json.dumps(sorted(modules)))
         (working / "policy.json").write_text(json.dumps(policy))
+        # Emit policy transitions only, avoiding per-step file I/O in the hot path.
+        (working / "timing").touch()
         # Use an independent directory so two replicas can never replace one another's modules.
         overlay = Path(tempfile.mkdtemp(prefix="run-", dir=state_dir))
         for path in working.iterdir():

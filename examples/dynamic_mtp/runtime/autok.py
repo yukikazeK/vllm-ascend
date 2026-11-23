@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 from statistics import median
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("vllm.dynamic_mtp")
 policy_path = Path(os.environ["DYN_FULL_POLICY"])
 policy_table = {
     int(length): {int(pressure): depth for pressure, depth in row.items()}
