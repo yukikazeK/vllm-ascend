@@ -1,3 +1,24 @@
+# vLLM Ascend 0.30.0｜910B4 推理改动
+
+本 fork 的 `main` 基于官方 [v0.30.0](https://github.com/vllm-project/vllm-ascend/tree/v0.30.0)。当前集成了两项可按需启用的功能，面向 910B4-1 上的 Qwen 27B W8A8 部署。
+
+| `main` 中的功能 | 改了什么 | 验证范围 |
+| --- | --- | --- |
+| **本地前缀缓存构建与启动加载** | 部署时一次构建 Agent 固定前缀并保存到 NVMe。服务启动时校验缓存布局、按 rank 恢复到 Mooncake。请求命中后可跳过对应的 prefill 计算。 | TP1 和 TP2 从磁盘冷恢复，2,048 输入中命中 896 个 token，16 个贪心输出 token 与基线一致。[使用指南](examples/agent_prefix_cache/README.md) · [详细设计](examples/agent_prefix_cache/docs/design.zh-CN.md) |
+| **动态 MTP，保留解码整图** | 按输入长度与本实例负载选择 K=0～3，使用 `FULL_DECODE_ONLY`，处理降档时的 GDN 状态和请求的状态块预留。 | 在单卡 TP1 和双独立 TP1 上验证过。不同场景的吞吐和首 token 尾延迟表现不同。按业务负载选择固定或动态策略。[使用与限制](examples/dynamic_mtp/README.md) |
+
+两项功能各有启动入口和适用条件。直接运行原生 `vllm serve` 使用上游行为。两项功能同时开启、动态 MTP 的 TP2 路径和其他模型组合仍待验证。
+
+## 实验分支
+
+| 分支 | 内容与结论 |
+| --- | --- |
+| [`experiments/gdn-layout`](https://github.com/yukikazeK/vllm-ascend/tree/experiments/gdn-layout) | GDN 的 QKV 布局复用、状态转置融合和 MegaGDN 对照。布局复用带来小幅收益，MegaGDN 在实测形状下慢于现有 FLA。 |
+| [`experiments/prefill-graphs`](https://github.com/yukikazeK/vllm-ascend/tree/experiments/prefill-graphs) | 混合图加 `npugraph_ex` 和固定块 Prefill 整图。收益较小，后者在 TP2/MTP2 的混合续算中未通过输出校验。 |
+| [`experiments/context-parallel`](https://github.com/yukikazeK/vllm-ascend/tree/experiments/context-parallel) | SP、GDN PCP2 原型、同机 1P1D 和双 TP1／TP2 配置对照。PCP2 的 32K 请求可执行，输出一致性仍待解决。 |
+
+---
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vllm-project/vllm-ascend/main/docs/source/logos/vllm-ascend-logo-text-dark.png">
