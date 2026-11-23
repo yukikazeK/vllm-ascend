@@ -1,0 +1,94 @@
+--- a/vllm_ascend/ops/gdn.py
++++ b/vllm_ascend/ops/gdn.py
+@@ -50,6 +50,16 @@
+ from vllm_ascend.ops.triton.fla.utils import clear_ssm_states
+ from vllm_ascend.ops.triton.mamba.causal_conv1d import extract_last_width
+ from vllm_ascend.ops.triton.mamba.state_index import gather_ssm_states, scatter_ssm_states_
++
++import os
++from layout_ops import fla_gdn_prefill,fla_state_transposed
++from state_transpose import gather_transposed,scatter_transposed
++_LAYOUT_ARM=os.environ['LAYOUT_ARM']
++_seen=set()
++def _record(branch):
++    if branch not in _seen:
++        print("GDN_SCREEN_EXECUTED",_LAYOUT_ARM,branch,flush=True)
++        _seen.add(branch)
+ 
+ _PACKED_CONV_WEIGHT_NAME = "ascend_conv1d_weight"
+ 
+@@ -787,27 +797,53 @@
+                 and get_pcp_group().world_size == 1
+             )
+             if fla_gdn_prefill_op is not None:
+-                initial_state = gather_ssm_states(
+-                    ssm_state,
+-                    prefill_state_indices,
+-                    prefill_has_initial_state,
+-                )
+-                (core_attn_out_non_spec, last_recurrent_state) = DeviceOperator.fla_gdn_prefill(
+-                    q=query_non_spec,
+-                    k=key_non_spec,
+-                    v=value_non_spec,
+-                    g=g_non_spec,
+-                    beta=beta_non_spec,
+-                    initial_state=initial_state,
+-                    scale=key_non_spec.shape[-1] ** -0.5,
+-                    prebuilt_meta=attn_metadata.non_spec_prefill_metadata.chunk,
+-                    fused_fwd=fla_gdn_prefill_op,
+-                )
+-                scatter_ssm_states_(
+-                    ssm_state,
+-                    prefill_state_indices,
+-                    last_recurrent_state.to(ssm_state.dtype).contiguous(),
+-                )
++                if (_LAYOUT_ARM=="C" and attn_metadata.non_spec_prefill_metadata.chunk.keep_meta is None
++                    and ssm_state.shape[-2:]==(128,128) and ssm_state.stride()[1:]==(16384,128,1)):
++                    _record("state")
++                    initial_state = gather_transposed(
++                        ssm_state,
++                        prefill_state_indices,
++                        prefill_has_initial_state,
++                    )
++                    (core_attn_out_non_spec, last_recurrent_state) = fla_state_transposed(
++                        q=query_non_spec,
++                        k=key_non_spec,
++                        v=value_non_spec,
++                        g=g_non_spec,
++                        beta=beta_non_spec,
++                        initial_state=initial_state,
++                        scale=key_non_spec.shape[-1] ** -0.5,
++                        prebuilt_meta=attn_metadata.non_spec_prefill_metadata.chunk,
++                        fused_fwd=fla_gdn_prefill_op,
++                    )
++                    scatter_transposed(
++                        ssm_state,
++                        prefill_state_indices,
++                        last_recurrent_state.to(ssm_state.dtype).contiguous(),
++                    )
++                else:
++                    _record("layout")
++                    initial_state = gather_ssm_states(
++                        ssm_state,
++                        prefill_state_indices,
++                        prefill_has_initial_state,
++                    )
++                    (core_attn_out_non_spec, last_recurrent_state) = fla_gdn_prefill(
++                        q=query_non_spec,
++                        k=key_non_spec,
++                        v=value_non_spec,
++                        g=g_non_spec,
++                        beta=beta_non_spec,
++                        initial_state=initial_state,
++                        scale=key_non_spec.shape[-1] ** -0.5,
++                        prebuilt_meta=attn_metadata.non_spec_prefill_metadata.chunk,
++                        fused_fwd=fla_gdn_prefill_op,
++                    )
++                    scatter_ssm_states_(
++                        ssm_state,
++                        prefill_state_indices,
++                        last_recurrent_state.to(ssm_state.dtype).contiguous(),
++                    )
+             elif use_fused_chunk:
+                 # Gather only the selected rows. Generic advanced indexing first
+                 # materializes the complete cache when ssm_state has a padded
