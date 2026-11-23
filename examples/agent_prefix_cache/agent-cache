@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""Build, inspect, publish, and load immutable agent prefix packages."""
+import argparse
+import json
+import os
+from pathlib import Path
+import signal
+import sys
+
+from agent_cache import engine
+from agent_cache.registry import (
+    Registry, check_package, copy_package, identifier, metadata, new_metadata, salt_hash, version_id,
+)
+from bootstrap.cache_package import fingerprint, local_objects, read_json, write_json
+
+
+def positive(value):
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError('must be positive')
+    return number
+
+
+def setup():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root', type=Path, default=Path(os.environ.get('AGENT_CACHE_ROOT', '~/.agent-cache')).expanduser(),
+                        help='Package registry on persistent local storage.')
+    subs = parser.add_subparsers(dest='command', required=True)
+    for name in ('build', 'update'):
+        sub = subs.add_parser(name)
+        sub.add_argument('--agent', required=True)
+        sub.add_argument('--config', type=Path, required=True)
+        sub.add_argument('--profile', type=Path, required=True)
+        sub.add_argument('--min-cached-tokens', type=positive, default=1)
+        sub.add_argument('--timeout', type=positive, default=600, help='Engine startup timeout in seconds.')
+    sub = subs.add_parser('list')
+    sub.add_argument('--agent')
+    for name in ('show', 'verify', 'activate', 'rollback'):
+        sub = subs.add_parser(name)
+        sub.add_argument('ref', help='AGENT or AGENT@VERSION')
+        sub.add_argument('--profile', type=Path)
+        if name == 'verify':
+            sub.add_argument('--cold', action='store_true')
+            sub.add_argument('--timeout', type=positive, default=600)
+    sub = subs.add_parser('import')
+    sub.add_argument('package', type=Path)
+    sub = subs.add_parser('export')
+    sub.add_argument('ref')
+    sub.add_argument('destination', type=Path)
+    subs.add_parser('remove').add_argument('ref')
+    subs.add_parser('serve').add_argument('--profile', type=Path, required=True)
+    return parser
+
+
+def emit(result):
+    print(json.dumps(result, indent=2, ensure_ascii=False), flush=True)
+
+
+def build(registry, args):
+    agent = identifier(args.agent)
+    cfg = engine.profile(args.profile)
+    fp = engine.profile_id(cfg)
+    config = read_json(args.config)
+    if not isinstance(config, dict):
+        raise ValueError('agent config must be a JSON object')
+    salt = config.get('cache_salt')
+    if salt is not None and (not isinstance(salt, str) or not salt):
+        raise ValueError('cache_salt must be a nonempty string')
+    config_hash = fingerprint(config)
+    for info, path in registry.all(agent):
+        if info['profile_fingerprint'] == fp and info['agent_config_sha256'] == config_hash:
+            if info['external_prefix_hit_tokens'] < args.min_cached_tokens:
+                raise ValueError('existing package has fewer verified cached tokens than requested')
+            emit({'reused': True, 'package': str(path), **check_package(path)})
+            return
+    run = registry.stage(agent)
+    package = run / 'package'
+    package.mkdir()
+    print(f'Building {agent}; logs: {run}', file=sys.stderr, flush=True)
+    with engine.private_engine(cfg, run, 'build', args.timeout, package) as port:
+        tokens = engine.prompt_tokens(config, cfg, port)
+        if len(tokens) < args.min_cached_tokens:
+            raise ValueError('the prefix is shorter than --min-cached-tokens')
+        version = version_id(fp, fingerprint(tokens), salt_hash(salt))
+        path = registry.versions / agent / version
+        if path.is_dir():
+            info = check_package(path)
+            if info['external_prefix_hit_tokens'] < args.min_cached_tokens:
+                raise ValueError('existing package has fewer verified cached tokens than requested')
+            emit({'reused': True, 'package': str(path), **info})
+            return
+        expected = engine.run_request(cfg, port, tokens, salt)
+        if engine.count_hits(port) != 0:
+            raise RuntimeError('the build request hit an existing external prefix')
+        engine.await_export(package)
+    engine.finish_layout(package)
+    for n in ('export.lock', 'export-error.json'):
+        (package/n).unlink(missing_ok=True)
+    write_json(package/'probe.json', {'token_ids': tokens, 'output_ids': expected, 'cache_salt': salt})
+    proof = engine.cold_restore(cfg, run, package, tokens, expected, args.min_cached_tokens, args.timeout, salt)
+    info = new_metadata(agent, fp, cfg['model_revision'], config, tokens, read_json(package/'layouts.json'),
+                        read_json(package/'objects.json'), proof)
+    write_json(package/'package.json', info)
+    path = registry.publish(package)
+    emit({'reused': False, 'package': str(path), **info})
+
+
+def describe(registry, info, path):
+    active = registry.current(info['profile_fingerprint'])
+    return {**info, 'path': str(path), 'active':active.get(info['agent']) == info['version'],
+            'bytes': sum(rec[2] for rec in local_objects(path/'objects.json'))}
+
+
+def main():
+    args = setup().parse_args()
+    registry = Registry(args.root)
+    command = args.command
+    if command in ('build', 'update'):
+        build(registry, args)
+    elif command == 'list':
+        emit([describe(registry, info, path) for info, path in registry.all(args.agent)])
+    elif command == 'import':
+        src = args.package.resolve(strict=True)
+        info = check_package(src)
+        run = registry.stage(info['agent'])
+        package = run/'package'
+        copy_package(src, package)
+        emit({'package': str(registry.publish(package))})
+    elif command == 'export':
+        path = registry.resolve(args.ref)
+        copy_package(path, args.destination)
+        emit({'exported': str(args.destination)})
+    elif command == 'remove':
+        registry.remove(args.ref)
+        emit({'removed': args.ref})
+    elif command == 'serve':
+        cfg = engine.profile(args.profile)
+        active = registry.active / engine.profile_id(cfg)
+        config = args.profile
+        if not active.is_dir():
+            raise ValueError(f'no active package for {config}; activate a matching agent version')
+        cmd = [sys.executable, str(engine.LAUNCHER), 'serve', *cfg['serve_args'],
+               '--load-local-prefix-cache', '--local-prefix-cache-path', str(active)]
+        os.execve(sys.executable, cmd, engine.profile_env(cfg))
+    else:
+        cfg = engine.profile(args.profile) if args.profile else None
+        fp = engine.profile_id(cfg) if cfg else None
+        if command in ('activate', 'rollback'):
+            if command == 'rollback' and '@' not in args.ref:
+                raise ValueError('rollback requires AGENT@VERSION')
+            emit({'active_path': str(registry.activate(args.ref, fp))})
+        else:
+            path = registry.resolve(args.ref, fp)
+            info = check_package(path) if command == 'verify' else metadata(path)
+            proof = None
+            if command == 'verify' and args.cold:
+                if cfg is None:
+                    raise ValueError('cold verification requires --profile')
+                probe = read_json(path/'probe.json')
+                run = registry.stage(info['agent'])
+                print(f'Cold verify logs: {run}', file=sys.stderr, flush=True)
+                proof = engine.cold_restore(cfg, run, path, probe['token_ids'], probe['output_ids'],
+                                            info['external_prefix_hit_tokens'], args.timeout, probe.get('cache_salt'))
+            out = describe(registry, info, path)
+            if proof is not None:
+                out['cold_verification'] = proof
+            emit(out)
+
+
+def interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
+if __name__ == '__main__':
+    signal.signal(signal.SIGTERM, interrupt)
+    try:
+        main()
+    except KeyboardInterrupt:
+        print('agent-cache: interrupted', file=sys.stderr)
+        sys.exit(130)
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+        print(f'agent-cache: {exc}', file=sys.stderr)
+        sys.exit(1)
