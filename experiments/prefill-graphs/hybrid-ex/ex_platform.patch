@@ -1,0 +1,11 @@
+--- a/vllm_ascend/platform.py
++++ b/vllm_ascend/platform.py
+@@ -1337,7 +1337,7 @@
+                 "vllm::minimax_m3_fused_sparse_forward",
+             ]
+         )
+-        additional_config["ascend_compilation_config"]["enable_npugraph_ex"] = False
++        additional_config["ascend_compilation_config"]["enable_npugraph_ex"] = (__import__("os").environ.get("EX_STAGE") in ("pilot","D","Dhot") and compilation_config.cudagraph_mode.name=="FULL_AND_PIECEWISE")
+         additional_config["ascend_compilation_config"]["enable_static_kernel"] = False
+         additional_config["ascend_compilation_config"]["enable_super_kernel"] = False
+     elif compilation_config.cudagraph_mode.has_full_cudagraphs():

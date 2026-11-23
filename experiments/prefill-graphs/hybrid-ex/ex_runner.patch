@@ -1,0 +1,16 @@
+--- a/vllm_ascend/worker/model_runner_v1.py
++++ b/vllm_ascend/worker/model_runner_v1.py
+@@ -2653,6 +2653,13 @@
+                 assert broadcasted is not None
+                 logits = broadcasted["logits"]
+ 
++            if not getattr(self,'_ex_diag_finished',False):
++                import os as _os
++                if _os.path.exists(_os.path.join(_os.environ['GRAPH_TREND_DIR'],'diag-stop')):
++                    self._ex_diag_finished=True
++                else:
++                    from exdiag import snap
++                    snap(self,attn_metadata,logits,cudagraph_mode,self.input_batch.num_computed_tokens_cpu,self.input_batch.num_prompt_tokens,num_scheduled_tokens_np[:num_reqs])
+             # Apply structured output bitmasks if present
+             self.execute_model_state = ExecuteModelState(
+                 scheduler_output,

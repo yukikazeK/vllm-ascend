@@ -1,0 +1,58 @@
+--- a/vllm_ascend/compilation/compiler_interface.py
++++ b/vllm_ascend/compilation/compiler_interface.py
+@@ -208,6 +208,12 @@
+ 
+         def patched_get_compiled_gm(self, graph, example_inputs):
+             compiled_gm = _original_get_compiled_gm(self, graph, example_inputs)
++            if os.environ.get('EX_STAGE') in ('pilot','D','Dhot'):
++                from pathlib import Path as _Path
++                _out=compiled_gm.get_code()
++                if _out:
++                    (_Path(os.environ['GRAPH_TREND_DIR'])/('after-'+str(key)+'.py')).write_text(_out)
++                    print('EX_EMITTED',key,flush=True)
+             if cache_path:
+                 py_code = compiled_gm.get_code()
+                 if py_code:
+@@ -315,14 +321,28 @@
+             ]
+ 
+         ascend_compilation_config = get_ascend_config().ascend_compilation_config
+-        if ascend_compilation_config.enable_npugraph_ex:
++        _stage=os.environ.get('EX_STAGE','')
++        _ops=[str(n.target) for n in graph.graph.nodes if n.op=='call_function']
++        _signature=' '.join(_ops)
++        _eligible=('npu_quant_matmul' in _signature and 'triton_kernel_wrapper' not in _signature and 'attention_core' not in _signature and 'unified_attention' not in _signature)
++        _take=ascend_compilation_config.enable_npugraph_ex
++        if _stage in ('pilot','D','Dhot'):
++            _take=_take and _eligible
++            if _stage=='pilot':
++                _take=_take and key is not None and key.endswith('_subgraph_0')
++            if _take:
++                from pathlib import Path as _Path
++                _p=_Path(os.environ['GRAPH_TREND_DIR'])/('before-'+str(key)+'.py')
++                _p.write_text(graph.code)
++            print('EX_DISPATCH',_stage,key,_take,flush=True)
++        if _take:
+             cache_dir = None if getattr(self, "disable_cache", False) else getattr(self, "cache_dir", None)
+             logger.info_once(
+                 "enable_npugraph_ex is enabled, which will bring graph compilation optimization.",
+                 scope="global",
+             )
+             assert hasattr(self, "vllm_config")
+-            return npugraph_ex_compile(
++            _fn,_handle=npugraph_ex_compile(
+                 graph,
+                 example_inputs,
+                 compiler_config,
+@@ -332,6 +352,11 @@
+                 key,
+                 cache_dir,
+             )
++            if _stage=='pilot' or (_stage=='D' and key.endswith('_subgraph_4')):
++                from profile_piece import wrapped
++                _ref,_=fusion_pass_compile(copy.deepcopy(graph),example_inputs,compiler_config,compile_range,key)
++                _fn=wrapped(_fn,_ref,key)
++            return _fn,_handle
+         else:
+             return fusion_pass_compile(graph, example_inputs, compiler_config, compile_range, key)
+ 

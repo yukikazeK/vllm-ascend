@@ -1,0 +1,31 @@
+--- a/vllm_ascend/worker/model_runner_v1.py
++++ b/vllm_ascend/worker/model_runner_v1.py
+@@ -2592,9 +2592,16 @@
+                 if mamba_copy_connector is None:
+                     mamba_utils.do_mamba_copy_block(preprocess_bufs)
+             self._restore_c8_mxfp_loaded_v_scales(scheduler_output)
+-            hidden_states = self._model_forward(
+-                num_tokens_padded, input_ids, positions, intermediate_tensors, inputs_embeds, **model_kwargs
+-            )
++            if (num_reqs==1 and num_tokens_unpadded==num_tokens_padded==8064
++                    and int(self.input_batch.num_computed_tokens_cpu[0]) in (0,8064,16128,24192)
++                    and int(self.input_batch.num_computed_tokens_cpu[0])<int(self.input_batch.num_prompt_tokens[0])
++                    and self.speculative_config is None and not has_encoder_input):
++                from fixed_prefill import run as _fixed_prefill
++                hidden_states=_fixed_prefill(self,attn_metadata,num_tokens_padded,int(self.input_batch.num_computed_tokens_cpu[0]),input_ids,positions,intermediate_tensors,inputs_embeds,model_kwargs)
++            else:
++                hidden_states = self._model_forward(
++                    num_tokens_padded, input_ids, positions, intermediate_tensors, inputs_embeds, **model_kwargs
++                )
+             self._cpp_execution_time_ms = _finish_profiling_chunk_timing(
+                 profiling_chunk_config,
+                 execution_start_time,
+@@ -2653,6 +2660,8 @@
+                 assert broadcasted is not None
+                 logits = broadcasted["logits"]
+ 
++            from fixed_prefill import observe
++            observe(self,attn_metadata,logits,self.input_batch.num_computed_tokens_cpu[:num_reqs],num_scheduled_tokens_np[:num_reqs],self.input_batch.num_prompt_tokens[:num_reqs])
+             # Apply structured output bitmasks if present
+             self.execute_model_state = ExecuteModelState(
+                 scheduler_output,
