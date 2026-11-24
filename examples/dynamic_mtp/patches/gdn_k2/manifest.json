@@ -1,0 +1,12 @@
+{
+  "vllm.v1.worker.gpu.cudagraph_utils": {
+    "patch": "gdn_k2/candidates.patch",
+    "source_sha256": "6e9c042890603535e300a40df8ee159dbed1058a64a83ae50ff0329e332e05ff",
+    "result_sha256": "39750338644dae1de4f057e18af02b0cb7824dc6ce3b74670563380399bb6c37"
+  },
+  "vllm_ascend.ops.gdn": {
+    "patch": "gdn_k2/gdn.patch",
+    "source_sha256": "5e3b0fb0d9fd71bdcf64fdd5f0e182f12041e291b0122b638613ada2f53224ed",
+    "result_sha256": "e088302f69ff354c37284e93d2f31058a80adc3231374d4f92f8ef7a103087b2"
+  }
+}

@@ -1,0 +1,132 @@
+--- a/vllm/v1/worker/gpu/cudagraph_utils.py
++++ b/vllm/v1/worker/gpu/cudagraph_utils.py
+@@ -2,9 +2,12 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ import gc
+ import itertools
++import os
+ from collections import defaultdict
+ from collections.abc import Callable, Iterable
+ from contextlib import ExitStack
++
++from gdn_k2_exact import EXACT_K2_ROWS, WIDTH, capture_scope, is_eligible
+ from dataclasses import dataclass, replace
+ from itertools import groupby, product
+ from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
+@@ -74,6 +77,7 @@
+     num_active_loras: int = 0
+     # Number of microbatches the batch is split into (DBO). 1 means no splitting.
+     num_ubatches: int = 1
++    gdn_exact_k2: bool = False
+ 
+ 
+ def make_cudagraph_stats(
+@@ -108,6 +112,10 @@
+     max_query_len: int | None,
+     num_ubatches: int,
+ ) -> bool:
++    if desc.gdn_exact_k2 and not is_eligible(
++        desc.num_reqs, desc.num_tokens, num_reqs, num_tokens, uniform_token_count, max_query_len
++    ):
++        return False
+     # desc.uniform_token_count=None (PIECEWISE) can handle any uniform_token_count
+     # desc.num_reqs=None means no request padding needed (PIECEWISE)
+     # desc.max_query_len=None means the graph does not constrain query length; a
+@@ -269,6 +277,7 @@
+         if (
+             speculative_config
+             and speculative_config.uses_dynamic_speculative_decoding()
++            and self.decode_query_len > self.vllm_config.num_speculative_tokens
+         ):
+             # decode_query_len = num_speculative_steps + num_new_sampled_tokens
+             # _per_step. Recover num_new_sampled_tokens_per_step
+@@ -293,8 +302,15 @@
+         capture_varlen_decode = (
+             separate_decode_routine and bool(decode_mode) and self.varlen_decode
+         )
++        # Width three is the target verification step for K=2. Add exact
++        # shapes for up to 32 actual requests per replica, and leave all other
++        # widths and the drafter's graph set alone.
++        exact_sizes: set[int] = set()
++        if os.getenv("MTP_K2_TARGET_EXACT") and separate_decode_routine and decode_mode and not self.varlen_decode:
++            if len(decode_query_lens) > 1 and 3 in decode_query_lens:
++                exact_sizes = {12, 24, 48, 96} - set(capture_sizes)
+         for num_tokens, num_active_loras in product(
+-            capture_sizes, self.lora_capture_cases
++            sorted(set(capture_sizes) | exact_sizes), self.lora_capture_cases
+         ):
+             # Varlen decode graphs take any mix of 1..decode_query_len tokens per
+             # request, worst case 1 token per request (or max_num_reqs)
+@@ -311,6 +327,8 @@
+             #  (i.e. separate decode routine)
+             elif separate_decode_routine and decode_mode and not self.varlen_decode:
+                 for decode_query_len in decode_query_lens:
++                    if num_tokens in exact_sizes and decode_query_len != 3:
++                        continue
+                     rounded_num_tokens = round_up(num_tokens, decode_query_len)
+                     rounded_num_reqs = rounded_num_tokens // decode_query_len
+ 
+@@ -332,6 +350,9 @@
+                     # avoid duplicate graphs
+                     if desc not in descs_by_mode[decode_mode]:
+                         descs_by_mode[decode_mode].append(desc)
++                        if (os.getenv("MTP_GDN_EXACT_K2") and decode_mode == CUDAGraphMode.FULL
++                                and decode_query_len == WIDTH and rounded_num_reqs == EXACT_K2_ROWS):
++                            descs_by_mode[decode_mode].append(replace(desc, gdn_exact_k2=True))
+ 
+                     ubatch_desc = self._maybe_ubatch_twin(desc)
+                     if ubatch_desc is not None and (
+@@ -340,7 +361,7 @@
+                         descs_by_mode[decode_mode].append(ubatch_desc)
+ 
+             # recoverSSM cannot capture a dummy query wider than its workspace.
+-            if mixed_mode and (
++            if num_tokens not in exact_sizes and mixed_mode and (
+                 not self.vllm_config.cache_config.use_kda_recoverssm
+                 or num_tokens <= max_decode_tokens
+             ):
+@@ -365,7 +386,7 @@
+                     descs_by_mode[mixed_mode].append(ubatch_desc)
+ 
+         for mode, descs in descs_by_mode.items():
+-            descs.sort(key=lambda d: d.num_tokens, reverse=True)
++            descs.sort(key=lambda d: (d.num_tokens, not d.gdn_exact_k2), reverse=True)
+             self._capture_descs[mode] = descs
+ 
+         for mode in (CUDAGraphMode.FULL, CUDAGraphMode.PIECEWISE):
+@@ -472,7 +493,8 @@
+                         with torch.cuda.graph(
+                             graph, self.pool, stream=self._capture_stream(desc)
+                         ):
+-                            forward_fn(CUDAGraphMode.NONE)
++                            with capture_scope(desc.num_reqs if desc.gdn_exact_k2 else 0):
++                                forward_fn(CUDAGraphMode.NONE)
+                             # Join offloader's copy stream after forward to avoid
+                             # unjoined stream error. The last layer's start_prefetch
+                             # forks copy_stream, but wait_prefetch only happens in
+@@ -516,6 +538,25 @@
+                     effective_loras,
+                     max_query_len,
+                     num_ubatches,
++                ):
++                    return desc
++        # Different speculative widths can have different padding boundaries.
++        # The token-count bucket can contain only other widths even when a
++        # compatible, slightly larger uniform decode graph was captured.
++        if (
++            self._graphs_captured
++            and self.cudagraph_mode == CUDAGraphMode.FULL_DECODE_ONLY
++            and num_tokens > 0
++            and uniform_token_count is not None
++        ):
++            for desc in reversed(self._capture_descs.get(CUDAGraphMode.FULL, ())):
++                if (
++                    desc.uniform_token_count == uniform_token_count
++                    and desc in self.graphs
++                    and _is_compatible(
++                        desc, num_reqs, num_tokens, uniform_token_count,
++                        effective_loras, max_query_len, num_ubatches,
++                    )
+                 ):
+                     return desc
+         return BatchExecutionDescriptor(

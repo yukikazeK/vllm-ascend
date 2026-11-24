@@ -88,9 +88,11 @@ def installed_sources():
     return sources
 
 
-def prepare_overlay(state_dir, policy, sources):
+def prepare_overlay(state_dir, policy, sources, *, gdn_k2=False):
     patch_dir = HERE / "patches"
     modules = json.loads((patch_dir / "manifest.json").read_text())
+    if gdn_k2:
+        modules.update(json.loads((patch_dir / "gdn_k2" / "manifest.json").read_text()))
     state_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".prepare-", dir=state_dir) as tmp:
         working = Path(tmp)
@@ -124,6 +126,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--policy", type=Path, default=HERE / "policy.example.json")
     parser.add_argument("--state-dir", type=Path, required=True)
+    parser.add_argument(
+        "--gdn-k2-indexing", action="store_true",
+        help="Opt in to the experimental shared GDN indices and exact K2 graph.",
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER)
     options = parser.parse_args()
     try:
@@ -135,7 +141,9 @@ def main():
         if not exe:
             raise ValueError("vllm must be on PATH in the same Python environment as this launcher")
         policy = validate_policy(options.policy)
-        overlay = prepare_overlay(options.state_dir.resolve(), policy, installed_sources())
+        overlay = prepare_overlay(
+            options.state_dir.resolve(), policy, installed_sources(), gdn_k2=options.gdn_k2_indexing,
+        )
     except (ValueError, OSError, argparse.ArgumentError, subprocess.CalledProcessError) as exc:
         parser.error(str(exc))
     env = os.environ.copy()
@@ -144,6 +152,9 @@ def main():
     env["VLLM_USE_V2_MODEL_RUNNER"] = "1"
     env["DYN_FULL_ROOT"] = str(overlay)
     env["DYN_FULL_POLICY"] = str(overlay / "policy.json")
+    if options.gdn_k2_indexing:
+        env["MTP_K2_TARGET_EXACT"] = "1"
+        env["MTP_GDN_EXACT_K2"] = "1"
     print(f"Dynamic MTP overlay: {overlay}", flush=True)
     os.execve(exe, [exe, *command], env)
 
