@@ -37,7 +37,7 @@
   "vllm.v1.worker.mamba_utils": {
     "patch": "mamba_utils.patch",
     "source_sha256": "23fdaa4e8f63ee8f938eaa1a2b39f803cb04fa6ecd69789563254b1a0691413a",
-    "result_sha256": "eda71c483d9683d44b61557d96fef45c37993a1de71a8dda60a7f3ce185bec44"
+    "result_sha256": "9ac9b93ff1191f009fb896891947bb1828a520974c2c745bdeb7bc0cbe909580"
   },
   "vllm_ascend.worker.v2.model_states.mamba_hybrid": {
     "patch": "npu_hybrid.patch",

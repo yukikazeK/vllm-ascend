@@ -13,6 +13,8 @@
 
 | 分支 | 内容与结论 |
 | --- | --- |
+| [`experiments/gdn-mtp-indexing`](https://github.com/yukikazeK/vllm-ascend/tree/experiments/gdn-mtp-indexing) | 为动态 MTP 补齐常用 K2 整图尺寸，复用 GDN 状态索引，减少解码执行开销。 |
+| [`experiments/gdn-workspace-correctness`](https://github.com/yukikazeK/vllm-ascend/tree/experiments/gdn-workspace-correctness) | GDN Prefill 工作空间分组与 MTP 降档时的状态归位修正。基于 910B4-1 的 OOM 与输出异常复现，并通过对应算子和状态对照。[实验说明](examples/dynamic_mtp/README.md) |
 | [`experiments/gdn-layout`](https://github.com/yukikazeK/vllm-ascend/tree/experiments/gdn-layout) | GDN 的 QKV 布局复用、状态转置融合和 MegaGDN 对照。布局复用带来小幅收益，MegaGDN 在实测形状下慢于现有 FLA。 |
 | [`experiments/prefill-graphs`](https://github.com/yukikazeK/vllm-ascend/tree/experiments/prefill-graphs) | 混合图加 `npugraph_ex` 和固定块 Prefill 整图。收益较小，后者在 TP2/MTP2 的混合续算中未通过输出校验。 |
 | [`experiments/context-parallel`](https://github.com/yukikazeK/vllm-ascend/tree/experiments/context-parallel) | SP、GDN PCP2 原型、同机 1P1D 和双 TP1／TP2 配置对照。PCP2 的 32K 请求可执行，输出一致性仍待解决。 |

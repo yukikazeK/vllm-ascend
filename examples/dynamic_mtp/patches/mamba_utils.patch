@@ -8,24 +8,25 @@
  
      num_computed = tl.load(num_computed_tokens_ptr + req_indices, mask=mask, other=0)
      query_start = tl.load(query_start_loc_ptr + offsets, mask=mask, other=0)
-@@ -543,7 +542,15 @@
+@@ -543,7 +542,16 @@
      computed_after = num_computed + query_end - query_start
      new_state_idx = (computed_after + MAMBA_BLOCK_SIZE - 1) // MAMBA_BLOCK_SIZE - 1
      tl.store(state_idx_ptr + req_indices, new_state_idx, mask=mask)
 -    should_reset = (state_idx >= 0) & (state_idx != new_state_idx)
-+    # Non-spec GDN width-one reads the base state slot, even after a
-+    # multi-token verification advanced the accepted state within this block.
-+    # Encode an in-place move separately from a normal cross-block copy.
++    # GDN recurrent verification requires the previous accepted position
++    # to be within the current query width. A narrower verification must
++    # move the accepted state and convolution window into the base slot.
++    query_width = query_end - query_start
 +    same_block_commit = (
 +        (state_idx >= 0) & (state_idx == new_state_idx)
-+        & (query_end - query_start == 1) & (src_off > 0)
++        & (query_width > 0) & (query_width < num_accepted)
 +    )
 +    tl.store(src_off_ptr + req_indices, tl.where(same_block_commit, -src_off, src_off), mask=mask)
 +    should_reset = ((state_idx >= 0) & (state_idx != new_state_idx)) | same_block_commit
      tl.store(num_accepted_tokens_ptr + req_indices, 1, mask=mask & should_reset)
  
  
-@@ -605,10 +612,10 @@
+@@ -605,10 +613,10 @@
      # Fresh state, or still writing the same block: kernels locate the initial
      # state in-block via num_accepted (preserved when no boundary is crossed),
      # so there is nothing to copy.

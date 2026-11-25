@@ -1,0 +1,7 @@
+{
+  "vllm_ascend.ops.gdn": {
+    "patch": "gdn_workspace/gdn.patch",
+    "source_sha256": "5e3b0fb0d9fd71bdcf64fdd5f0e182f12041e291b0122b638613ada2f53224ed",
+    "result_sha256": "be0f293c2bdf0da9ddd19211aa4aaaf6390e1db2b376d9381657634e3391f69e"
+  }
+}

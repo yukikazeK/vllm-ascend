@@ -1,0 +1,47 @@
+--- a/vllm_ascend/ops/gdn.py
++++ b/vllm_ascend/ops/gdn.py
+@@ -170,6 +170,10 @@
+         return state_indices.reshape(-1).contiguous()
+     if query_start_loc is None:
+         raise ValueError("query_start_loc is required to flatten non-uniform speculative state indices")
++    from gdn_k2_exact import flatten_if_exact
++    exact_indices = flatten_if_exact(state_indices, total_tokens, query_start_loc)
++    if exact_indices is not None:
++        return exact_indices
+     # Variable-length speculative sequences: map each token to its
+     # (sequence, slot) pair on device. The output length is host-known
+     # (total_tokens), so this path stays sync-free, unlike masked_select or
+@@ -702,6 +706,8 @@
+ 
+         # 2.1: Process the multi-query part
+         if spec_sequence_masks is not None:
++            from gdn_shared_indices import flatten_once
++
+             actual_seq_lengths = attn_metadata.spec_decode_metadata.actual_seq_lengths
+             query_spec = l2norm_fwd(query_spec)
+             key_spec = l2norm_fwd(key_spec)
+@@ -714,10 +720,12 @@
+                 beta=beta_spec.squeeze(0),
+                 scale=key_spec.shape[-1] ** -0.5,
+                 actual_seq_lengths=actual_seq_lengths,
+-                ssm_state_indices=_flatten_recurrent_state_indices(
++                ssm_state_indices=flatten_once(
++                    forward_context,
+                     spec_state_indices_tensor,
+                     query_spec.shape[1],
+                     spec_causal_conv1d_meta.query_start_loc,
++                    _flatten_recurrent_state_indices,
+                 ),
+                 num_accepted_tokens=spec_causal_conv1d_meta.num_accepted_tokens.to(torch.int32),
+             ).unsqueeze(0)
+@@ -792,7 +800,9 @@
+                     prefill_state_indices,
+                     prefill_has_initial_state,
+                 )
+-                (core_attn_out_non_spec, last_recurrent_state) = DeviceOperator.fla_gdn_prefill(
++                from gdn_bounded_prefill import bounded_prefill
++                (core_attn_out_non_spec, last_recurrent_state) = bounded_prefill(
++                    DeviceOperator.fla_gdn_prefill,
+                     q=query_non_spec,
+                     k=key_non_spec,
+                     v=value_non_spec,
