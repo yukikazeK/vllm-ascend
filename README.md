@@ -13,6 +13,7 @@
 
 | 分支 | 内容与结论 |
 | --- | --- |
+| [`experiments/c8-prefill-fused-gather`](https://github.com/yukikazeK/vllm-ascend/tree/experiments/c8-prefill-fused-gather) | 910B4-1 的 256 维 INT8 ND KV Decode 路径及分块 Prefill 的分页收集、反量化 Triton 融合。[使用与实验说明](examples/c8_nd_prefill/README.md) |
 | [`experiments/gdn-layout`](https://github.com/yukikazeK/vllm-ascend/tree/experiments/gdn-layout) | GDN 的 QKV 布局复用、状态转置融合和 MegaGDN 对照。布局复用带来小幅收益，MegaGDN 在实测形状下慢于现有 FLA。 |
 | [`experiments/prefill-graphs`](https://github.com/yukikazeK/vllm-ascend/tree/experiments/prefill-graphs) | 混合图加 `npugraph_ex` 和固定块 Prefill 整图。收益较小，后者在 TP2/MTP2 的混合续算中未通过输出校验。 |
 | [`experiments/context-parallel`](https://github.com/yukikazeK/vllm-ascend/tree/experiments/context-parallel) | SP、GDN PCP2 原型、同机 1P1D 和双 TP1／TP2 配置对照。PCP2 的 32K 请求可执行，输出一致性仍待解决。 |
