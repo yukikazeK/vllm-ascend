@@ -119,3 +119,6 @@ ASCEND_RT_VISIBLE_DEVICES=0 python3 examples/c8_long_context/launch.py \
 - 当前只验证单卡、该模型和准确的源版本；尚未验证 TP2/DP2 的组合性能、Mooncake 持久缓存与本布局的同时启用、多模态、长期实际流量或各类任务的精度。
 - 采用同一模型、相同负载、实际输出数、实际命中率和真实图状态核验，不使用不同精度下的理论 token 容量直接推导服务性能。
 - 外部 vLLM 改动、Ascend 改动及 CANN 边界见[跨仓库源码映射与版本记录](SOURCE_MAP.zh-CN.md)。此前未通过验证的原生全 INT8 Attention 研究不包含在此分支。
+
+
+分支交付时另行验证了新的启动入口、真实 512-token 请求及精确历史复用，见[分支交付验证](VALIDATION.zh-CN.md)。
