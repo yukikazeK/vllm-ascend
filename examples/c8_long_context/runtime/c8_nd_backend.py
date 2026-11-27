@@ -76,6 +76,7 @@ class DecodeParams:
 def adapt_attention(module):
     torch, torch_npu = module.torch, module.torch_npu
     cls = module.AscendC8AttentionBackendImpl
+    from c8_fold import attach_scales, fold_capture
     original_prep = cls._prepare_c8_scales
     original_c8_fia = cls._forward_c8_fused_infer_attention
     builder=module.AscendAttentionMetadataBuilder
@@ -150,6 +151,7 @@ def adapt_attention(module):
             )
             trace("scales_rank_sharded",layer_name=layer.layer_name,channels=expected,
                   num_heads=self.num_heads,num_kv_heads=self.num_kv_heads)
+        attach_scales(layer,torch)
 
     def args_for_decode(self, query, metadata, layer, batch, request_count=None, capture=False):
         if not hasattr(self, "_c8_nd_read_alias"):
@@ -194,6 +196,8 @@ def adapt_attention(module):
 
     def full_graph(self, query, key, value, metadata, output, layer=None):
         batch=query.shape[0]
+        if fold_capture(module,self,query,metadata,output,layer,args_for_decode):
+            return output,batch
         args=args_for_decode(self,query,metadata,layer,batch,capture=True)
         scratch=module.get_capture_resource(
             "c8.nd.flat-q1.fia.workspace",
