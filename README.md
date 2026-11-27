@@ -1,3 +1,20 @@
+# 实验分支：W8A8C8 长上下文优化（910B4-1）
+
+本分支 `experiments/c8-long-context-optimization` 在保留 `main` 已有功能的基础上，增加已实测的 Qwen 27B C8（INT8 KV）动态 MTP 长上下文推理方案。**不会替换原有 `vllm serve` 路径，也不需要修改 CANN。**
+
+| 新增优化 | 实测效果（单卡 TP1，适用特定实验配置） |
+| --- | --- |
+| 混合精度 KV Cache 逻辑分组与存储核验 | 65 组恢复为 4 组；相同 46,592 历史、2 并发输出吞吐 38.96 → 85.84 tok/s |
+| 稀疏 GDN 历史状态保留 | 63,232 历史、8 并发完整命中从 2/8 增至 8/8 |
+| Q4 共享历史 Attention 与因果尾部合并 | 116,480 历史单并发合并优化后 48.65 tok/s；58,240 历史、8 并发预建历史的输出吞吐 195.06 tok/s（W8A8 参考 32.96 tok/s，实际命中不同） |
+| Prefill 批预算对齐 | 8384 预算的同负载冷输入吞吐 26.25 tok/s，接近 W8A8 参考 26.33 tok/s；保留绝大部分缓存池 |
+
+**[中文启动与实测说明](examples/c8_long_context/README.md)** · **[跨仓库源码映射、版本与 CANN 边界](examples/c8_long_context/SOURCE_MAP.zh-CN.md)**
+
+该分支携带外部 vLLM 的版本锁定补丁及运行时适配模块，使用原装 CANN 9.2.1 和已安装的 FLA NPU 26.9.1；不纳入未完成的原生 INT8 Attention 算术研究。当前验证范围限于单卡 TP1，其他模型、TP2/DP2 及与磁盘前缀恢复组合仍需验证。
+
+---
+
 # vLLM Ascend 0.30.0｜910B4 推理改动
 
 本 fork 的 `main` 基于官方 [v0.30.0](https://github.com/vllm-project/vllm-ascend/tree/v0.30.0)。当前集成了两项可按需启用的功能，面向 910B4-1 上的 Qwen 27B W8A8 部署。
