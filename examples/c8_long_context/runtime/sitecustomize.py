@@ -14,6 +14,7 @@ from audit_io import append,rank
 
 TARGET = "vllm_ascend.quantization.methods.kv_cache.kv_c8"
 PATH = "vllm_ascend.attention.attention_v1"
+SCHEDULER = "vllm.v1.core.sched.scheduler"
 
 
 def log(run, row):
@@ -88,6 +89,12 @@ class Loader(importlib.machinery.SourceFileLoader):
         run = Path(os.environ["C8_AUDIT_RUN"])
         if module.__name__ == TARGET:
             audit_load(module, run)
+        elif module.__name__ == SCHEDULER:
+            # Execute the sparse correction after the actual scheduler and
+            # cache-manager imports, as in the validated service overlay.
+            from hybrid_sparse_retention import install
+
+            install()
         elif module.__name__ == PATH:
             audit_cache(module, run)
             if os.environ.get("C8_ND_RUN"):
@@ -97,7 +104,9 @@ class Loader(importlib.machinery.SourceFileLoader):
 
 class Finder:
     def find_spec(self, fullname, path=None, target=None):
-        if fullname in (TARGET, PATH):
+        if fullname in (TARGET, PATH) or (
+            fullname == SCHEDULER and os.environ.get("QWEN_HYBRID_SPARSE_RETENTION") == "1"
+        ):
             spec = importlib.machinery.PathFinder.find_spec(fullname, path, target)
             if spec and spec.origin:
                 spec.loader = Loader(fullname, spec.origin)
