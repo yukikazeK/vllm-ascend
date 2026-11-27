@@ -108,3 +108,20 @@ class Finder:
 if os.environ.get("C8_AUDIT_RUN") and not getattr(sys,"_c8_capacity_overlay_hook",False):
     sys._c8_capacity_overlay_hook=True
     sys.meta_path.insert(0, Finder())
+
+
+# Optional mixed-KV planner, with exact startup storage certification.
+if os.environ.get("C8_GROUPING") == "1":
+    try:
+        import c8_grouping
+        import c8_grouping_worker_audit
+
+        c8_grouping.install()
+        c8_grouping_worker_audit.install()
+    except BaseException:
+        # Python normally reports and ignores errors in sitecustomize. Never
+        # continue serving if the selected cache planner was not installed.
+        import traceback
+
+        traceback.print_exc()
+        os._exit(1)
